@@ -1,0 +1,34 @@
+# Filename patterns for bids_to_oppni_input.py.
+# Blank lines and lines starting with # are ignored.
+
+[anat_patterns]
+*T1w*.nii.gz
+*T1w*.nii
+
+[func_patterns]
+*bold*.nii.gz
+*bold*.nii
+
+[func_exclude_patterns]
+*sbref*
+*acq-rev*
+*dir-PA*
+*dir-flipped*
+
+[reverse_pe_patterns]
+*acq-rev*bold*.nii.gz
+*acq-rev*bold*.nii
+*dir-PA*bold*.nii.gz
+*dir-PA*bold*.nii
+*dir-flipped*bold*.nii.gz
+*dir-flipped*bold*.nii
+
+[fieldmap_magnitude_patterns]
+*magnitude1*.nii.gz
+*magnitude1*.nii
+*magnitude*.nii.gz
+*magnitude*.nii
+
+[fieldmap_phasediff_patterns]
+*phasediff*.nii.gz
+*phasediff*.nii
