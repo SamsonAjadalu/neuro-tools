@@ -752,7 +752,7 @@ def build_records(args, patterns):
             if reasons:
                 skipped.append((record, reasons))
                 print(
-                    f"[{subject_index}/{total_subjects}] Skipping {prefix}: {', '.join(reasons)}",
+                    f"[{subject_index}/{total_subjects}] SKIPPING {prefix}: {', '.join(reasons)}",
                     flush=True,
                 )
             else:
@@ -763,8 +763,17 @@ def build_records(args, patterns):
                     except ValueError as error:
                         message = str(error)
                         errors.append(message)
-                        print(f"[{subject_index}/{total_subjects}] ERROR: {message}", flush=True)
+                        print(
+                            f"[{subject_index}/{total_subjects}] ERROR for {prefix}: {message}",
+                            flush=True,
+                        )
                 if len(metadata) != len(funcs):
+                    skipped.append((record, ["metadata resolution failed"]))
+                    print(
+                        f"[{subject_index}/{total_subjects}] SKIPPING {prefix}: "
+                        "one or more functional runs failed metadata resolution",
+                        flush=True,
+                    )
                     continue
                 record["metadata"] = metadata
                 first = metadata[0]
