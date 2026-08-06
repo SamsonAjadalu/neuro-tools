@@ -703,16 +703,23 @@ def build_records(args, patterns):
     if not bids_root.is_dir():
         sys.exit(f"ERROR: missing BIDS root: {bids_root}")
 
-    for subject_folder in sorted(bids_root.glob("sub-*")):
-        if not subject_folder.is_dir():
-            continue
-        if args.subject and args.subject not in subject_folder.name:
-            continue
+    subject_folders = [
+        path for path in sorted(bids_root.glob("sub-*"))
+        if path.is_dir() and (not args.subject or args.subject in path.name)
+    ]
+    total_subjects = len(subject_folders)
+    processed_subjects = 0
+    processed_sessions = 0
+
+    for subject_index, subject_folder in enumerate(subject_folders, start=1):
+        processed_subjects += 1
+        print(f"[{subject_index}/{total_subjects}] Processing {subject_folder.name}", flush=True)
 
         for session_folder in find_sessions(subject_folder):
             ses_label = session_label(subject_folder, session_folder)
             if args.session and args.session not in ses_label:
                 continue
+            processed_sessions += 1
 
             anat = find_anat(subject_folder, session_folder, patterns)
             funcs = find_func(session_folder, patterns)
@@ -744,13 +751,19 @@ def build_records(args, patterns):
 
             if reasons:
                 skipped.append((record, reasons))
+                print(
+                    f"[{subject_index}/{total_subjects}] Skipping {prefix}: {', '.join(reasons)}",
+                    flush=True,
+                )
             else:
                 metadata = []
                 for func in funcs:
                     try:
                         metadata.append(resolve_run_metadata(func, args, patterns, bids_root, metadata_dir, participants))
                     except ValueError as error:
-                        errors.append(str(error))
+                        message = str(error)
+                        errors.append(message)
+                        print(f"[{subject_index}/{total_subjects}] ERROR: {message}", flush=True)
                 if len(metadata) != len(funcs):
                     continue
                 record["metadata"] = metadata
@@ -776,6 +789,11 @@ def build_records(args, patterns):
                             "tr_msec": item["tr_msec"],
                         })
 
+    print(
+        f"Discovery summary: subjects={processed_subjects} sessions={processed_sessions} "
+        f"rows={len(records)} skipped={len(skipped)} errors={len(errors)}",
+        flush=True,
+    )
     return records, skipped, errors
 
 
@@ -811,9 +829,6 @@ def main():
     records, skipped, errors = build_records(args, patterns)
 
     if errors:
-        print("ERROR: metadata resolution failed:", file=sys.stderr)
-        for error in errors:
-            print(f"  {error}", file=sys.stderr)
         sys.exit(1)
 
     if args.inspect:
