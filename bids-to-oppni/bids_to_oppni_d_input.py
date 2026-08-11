@@ -285,6 +285,18 @@ def validate_dwi(path):
     return image.shape, bval, bvec
 
 
+def check_dwi_sidecars(path):
+    if not path.is_file() or path.stat().st_size == 0:
+        raise ValueError(f"missing or empty DWI: {path}")
+    bval = path.with_name(image_stem(path) + ".bval")
+    bvec = path.with_name(image_stem(path) + ".bvec")
+    if not bval.is_file() or bval.stat().st_size == 0:
+        raise ValueError(f"missing or empty bval for {path}: {bval}")
+    if not bvec.is_file() or bvec.stat().st_size == 0:
+        raise ValueError(f"missing or empty bvec for {path}: {bvec}")
+    return None, bval, bvec
+
+
 def axis_direction(image, phase_encoding):
     """Convert a BIDS phase-encoding axis to an OPPNI world-axis direction."""
     import nibabel as nib
@@ -310,6 +322,8 @@ def resolve_pe(image, metadata, explicit, fallback, path):
         raise ValueError(f"missing PE_FWD/PhaseEncodingDirection for {path}")
     if str(value).upper() in {"A>>P", "P>>A", "R>>L", "L>>R", "I>>S", "S>>I"}:
         return str(value).upper()
+    if image is None:
+        image = load_nifti(path)
     return axis_direction(image, value)
 
 
@@ -385,22 +399,25 @@ def record_for(subject_folder, session_folder, args, patterns):
         raise SkipRecord("missing T1 anatomy")
     if not anat.is_file() or anat.stat().st_size == 0:
         raise SkipRecord(f"missing or empty T1 anatomy: {anat}")
-    anat_image = load_nifti(anat)
-    if len(anat_image.shape) != 3:
-        raise ValueError(f"T1 anatomy must be 3D: {anat} has shape {anat_image.shape}")
+    if args.validate:
+        anat_image = load_nifti(anat)
+        if len(anat_image.shape) != 3:
+            raise ValueError(f"T1 anatomy must be 3D: {anat} has shape {anat_image.shape}")
 
     validated = []
     rule_values = None
     for path in forward_files:
-        shape, _, _ = validate_dwi(path)
+        if args.validate:
+            shape, _, _ = validate_dwi(path)
+        else:
+            shape, _, _ = check_dwi_sidecars(path)
         metadata = load_json(sidecar_for(path)) if sidecar_for(path).is_file() else None
         if metadata is None:
             raise ValueError(f"missing JSON sidecar for DWI: {path}")
-        image = load_nifti(path)
         current_rules = dwi_rule_values(patterns["metadata_rules"], metadata)
         if rule_values is None:
             rule_values = current_rules
-        pe = resolve_pe(image, metadata, args.pe_fwd, current_rules.get("pe_fwd"), path)
+        pe = resolve_pe(None, metadata, args.pe_fwd, current_rules.get("pe_fwd"), path)
         tro = resolve_tro(metadata, args.tro_msec, current_rules, path)
         validated.append((path, pe, tro, shape))
 
@@ -418,12 +435,14 @@ def record_for(subject_folder, session_folder, args, patterns):
         if not reverse_files:
             raise SkipRecord("REV_MODE=REF but no reverse-PE DWI was found")
         reverse = reverse_files[0]
-        validate_dwi(reverse)
+        if args.validate:
+            validate_dwi(reverse)
+        else:
+            check_dwi_sidecars(reverse)
         reverse_json = sidecar_for(reverse)
         if not reverse_json.is_file():
             raise ValueError(f"missing JSON sidecar for reverse DWI: {reverse}")
-        reverse_image = load_nifti(reverse)
-        pe_rev = resolve_pe(reverse_image, load_json(reverse_json), args.pe_rev, reverse)
+        pe_rev = resolve_pe(None, load_json(reverse_json), args.pe_rev, None, reverse)
     return {
         "prefix": label_for(subject_folder, session_folder),
         "anat": anat,
@@ -526,6 +545,11 @@ def parse_args():
     optional.add_argument("--subject", help="Only include subjects whose folder name contains this text")
     optional.add_argument("--session", help="Only include sessions whose folder name contains this text")
     optional.add_argument("--inspect", action="store_true", help="Print resolved files and metadata")
+    optional.add_argument(
+        "--validate",
+        action="store_true",
+        help="Perform full NIfTI, bval, and bvec consistency validation",
+    )
     args = parser.parse_args()
     return args
 

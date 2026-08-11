@@ -52,6 +52,11 @@ The shared pattern file contains common anatomy and modality-specific sections.
 The BOLD generator reads the BOLD sections; the DWI generator reads the DWI
 sections. `REV_MODE=NONE` is supported for acquisitions without reverse PE.
 
+The DWI generator is a fast mapper by default. It checks that required files
+and metadata are present, but does not open NIfTI files or parse bval/bvec
+contents. Use `--validate` when full NIfTI, bval, and bvec consistency checks
+are needed.
+
 Use the following for the complete DWI CLI options:
 
 ```bash
