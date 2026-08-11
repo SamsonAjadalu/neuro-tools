@@ -30,31 +30,10 @@ DEFAULT_PATTERNS = {
     "fieldmap_phasediff_patterns": ["*phasediff*.nii.gz", "*phasediff*.nii"],
 }
 
-RUN_CONFIG_KEYS = {
-    "bids_root",
-    "output",
-    "patterns",
-    "func_pattern",
-    "exclude_func_pattern",
-    "reverse_pe_pattern",
-    "subject",
-    "session",
-    "undist",
-    "dist_file",
-    "tpattern",
-    "tr_msec",
-    "drop",
-    "seed",
-    "task_mode",
-    "inspect",
-}
-
-LIST_RUN_CONFIG_KEYS = {"func_pattern", "exclude_func_pattern", "reverse_pe_pattern"}
 UNDIST_CHOICES = {"none", "auto", "blip", "fieldmap"}
 TASK_MODE_CHOICES = {"none", "auto", "require"}
 
 DEFAULT_ARGS = {
-    "output": "input_auto.txt",
     "undist": "none",
     "tr_msec": None,
     "drop": "[3,0]",
@@ -63,102 +42,11 @@ DEFAULT_ARGS = {
 }
 
 
-def clean_config_value(value):
-    value = value.strip()
-
-    if value.lower() in {"", "none", "null"}:
-        return None
-
-    return value
-
-
-def clean_config_value_for_key(key, value):
-    value = value.strip()
-
-    if value == "":
-        return None
-
-    if key in {"undist", "task_mode"}:
-        return value.lower()
-
-    return clean_config_value(value)
-
-
-def config_bool(value, key):
-    if value is None:
-        return False
-
-    normalized = value.strip().lower()
-
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off", "none"}:
-        return False
-
-    sys.exit(f"ERROR: {key} must be true or false")
-
-
-def load_run_config(run_config):
-    config = {}
-
-    if run_config is None:
-        return config
-
-    run_config_path = Path(run_config).expanduser()
-
-    if not run_config_path.is_file():
-        return config
-
-    with open(run_config_path, encoding="utf-8") as file:
-        for line_number, raw_line in enumerate(file, start=1):
-            line = raw_line.strip()
-
-            if not line or line.startswith("#"):
-                continue
-
-            if "=" not in line:
-                sys.exit(f"ERROR: expected key=value in {run_config_path} on line {line_number}")
-
-            key, value = line.split("=", 1)
-            key = key.strip().replace("-", "_")
-
-            if key not in RUN_CONFIG_KEYS:
-                valid = ", ".join(sorted(RUN_CONFIG_KEYS))
-                sys.exit(f"ERROR: unknown run config key {key!r} on line {line_number}. Valid keys: {valid}")
-
-            value = clean_config_value_for_key(key, value)
-
-            if key in LIST_RUN_CONFIG_KEYS:
-                if value is None:
-                    config[key] = []
-                else:
-                    config.setdefault(key, []).append(value)
-            elif key == "inspect":
-                config[key] = config_bool(value, key)
-            else:
-                config[key] = value
-
-    return config
-
-
-def apply_run_config(args):
-    config = load_run_config(args.run_config)
-
+def apply_defaults(args):
     for key, value in DEFAULT_ARGS.items():
         if getattr(args, key) is None:
-            config_value = config.get(key)
-            setattr(args, key, value if config_value is None else config_value)
+            setattr(args, key, value)
 
-    for key in RUN_CONFIG_KEYS - set(DEFAULT_ARGS):
-        if getattr(args, key) is None:
-            setattr(args, key, config.get(key))
-
-    for key in LIST_RUN_CONFIG_KEYS:
-        if getattr(args, key) is None:
-            setattr(args, key, config.get(key))
-
-    if args.bids_root is None:
-        sys.exit("ERROR: missing bids_root. Set bids_root in bids_to_oppni_run.txt or pass --bids-root")
     if args.undist not in UNDIST_CHOICES:
         valid = ", ".join(sorted(UNDIST_CHOICES))
         sys.exit(f"ERROR: undist must be one of: {valid}")
@@ -808,28 +696,29 @@ def build_records(args, patterns):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate OPPNI-B input rows from BIDS-like data")
-    parser.add_argument("--run-config", default="bids_to_oppni_run.txt", help="Run settings file")
-    parser.add_argument("--bids-root", default=None, help="BIDS root containing sub-* folders")
-    parser.add_argument("--output", default=None, help="Output OPPNI input file")
-    parser.add_argument("--patterns", default=None, help="Text file with include/exclude filename patterns")
-    parser.add_argument("--func-pattern", action="append", help="Override FUNC include pattern; repeatable")
-    parser.add_argument("--exclude-func-pattern", action="append", help="Override FUNC exclude pattern; repeatable")
-    parser.add_argument("--reverse-pe-pattern", action="append", help="Override reverse-PE pattern; repeatable")
-    parser.add_argument("--subject", default=None, help="Only include subjects whose folder name contains this text")
-    parser.add_argument("--session", default=None, help="Only include sessions whose folder name contains this text")
-    parser.add_argument("--undist", choices=["none", "auto", "blip", "fieldmap"], default=None)
-    parser.add_argument("--dist-file", default=None, help="OPPNI distortion parameter file")
-    parser.add_argument("--tpattern", default=None, help="OPPNI TPATTERN value, shared slice timing file, or folder with one *_slicetime.txt file per BOLD run")
-    parser.add_argument("--tr-msec", default=None, help="OPPNI TR_MSEC value")
-    parser.add_argument("--drop", default=None, help="OPPNI DROP value per functional run")
-    parser.add_argument("--seed", default=None, help="Optional OPPNI SEED file")
-    parser.add_argument("--task-mode", choices=["none", "auto", "require"], default=None)
-    parser.add_argument("--inspect", action="store_true", default=None, help="Print discovered rows and skip reasons")
+    required = parser.add_argument_group("required")
+    required.add_argument("--bids-root", required=True, metavar="PATH", help="BIDS dataset root")
+    required.add_argument("--output", required=True, metavar="FILE", help="Output OPPNI input file")
+    optional = parser.add_argument_group("optional")
+    optional.add_argument("--patterns", metavar="FILE", help="Dataset-specific filename and metadata rules")
+    optional.add_argument("--func-pattern", action="append", help="Override FUNC include pattern; repeatable")
+    optional.add_argument("--exclude-func-pattern", action="append", help="Override FUNC exclude pattern; repeatable")
+    optional.add_argument("--reverse-pe-pattern", action="append", help="Override reverse-PE pattern; repeatable")
+    optional.add_argument("--subject", help="Only include subjects whose folder name contains this text")
+    optional.add_argument("--session", help="Only include sessions whose folder name contains this text")
+    optional.add_argument("--undist", choices=sorted(UNDIST_CHOICES), default=None, metavar="MODE", help="Distortion-correction mode")
+    optional.add_argument("--dist-file", help="OPPNI distortion parameter file")
+    optional.add_argument("--tpattern", metavar="VALUE", help="Override TPATTERN with an AFNI code, shared timing file, or timing folder")
+    optional.add_argument("--tr-msec", metavar="VALUE", help="Override TR_MSEC in milliseconds")
+    optional.add_argument("--drop", help="OPPNI DROP value per functional run")
+    optional.add_argument("--seed", help="Optional OPPNI SEED file")
+    optional.add_argument("--task-mode", choices=sorted(TASK_MODE_CHOICES), default=None, metavar="MODE", help="Task-event handling mode")
+    optional.add_argument("--inspect", action="store_true", help="Print resolved files, metadata, and value sources")
     return parser.parse_args()
 
 
 def main():
-    args = apply_run_config(parse_args())
+    args = apply_defaults(parse_args())
     patterns = load_patterns(args.patterns)
     extend_patterns(patterns, "func_patterns", args.func_pattern)
     extend_patterns(patterns, "func_exclude_patterns", args.exclude_func_pattern)
