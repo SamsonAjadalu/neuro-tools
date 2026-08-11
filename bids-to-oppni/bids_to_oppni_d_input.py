@@ -14,6 +14,17 @@ DEFAULT_DWI_PATTERNS = ["*dwi*.nii.gz", "*dwi*.nii"]
 DEFAULT_ANAT_PATTERNS = ["*T1w*.nii.gz", "*T1w*.nii"]
 DEFAULT_REVERSE_PATTERNS = ["*dir-PA*dwi*", "*dir-rev*dwi*", "*acq-rev*dwi*", "*b0ref*dwi*"]
 REV_MODE_CHOICES = {"NONE", "REF"}
+PATTERN_LIST_SECTIONS = {
+    "anat_patterns",
+    "func_patterns",
+    "dwi_patterns",
+    "func_exclude_patterns",
+    "reverse_pe_patterns",
+    "func_reverse_pe_patterns",
+    "dwi_reverse_pe_patterns",
+    "fieldmap_magnitude_patterns",
+    "fieldmap_phasediff_patterns",
+}
 
 
 def image_stem(path):
@@ -41,6 +52,104 @@ def matching_files(folder, patterns):
 
 def matches_any(path, patterns):
     return any(fnmatch.fnmatchcase(path.name, pattern) for pattern in patterns)
+
+
+def is_metadata_section(section):
+    return (
+        section.lower() == "defaults"
+        or section.lower().startswith("bold manufacturer:")
+        or section.lower().startswith("dwi manufacturer:")
+        or section.lower().startswith("manufacturer:")
+    )
+
+
+def load_patterns(pattern_file):
+    patterns = {
+        "anat_patterns": list(DEFAULT_ANAT_PATTERNS),
+        "dwi_patterns": list(DEFAULT_DWI_PATTERNS),
+        "dwi_reverse_pe_patterns": list(DEFAULT_REVERSE_PATTERNS),
+        "metadata_rules": {},
+    }
+    if pattern_file is None:
+        return patterns
+    section = None
+    seen = set()
+    with Path(pattern_file).expanduser().open(encoding="utf-8") as file:
+        for line_number, raw_line in enumerate(file, start=1):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].strip()
+                if section not in PATTERN_LIST_SECTIONS and not is_metadata_section(section):
+                    valid = ", ".join(sorted(PATTERN_LIST_SECTIONS)) + ", [dwi manufacturer:NAME]"
+                    raise ValueError(f"unknown pattern section [{section}] on line {line_number}; valid sections: {valid}")
+                if section not in seen:
+                    if section in PATTERN_LIST_SECTIONS:
+                        patterns[section] = []
+                    else:
+                        patterns.setdefault("metadata_rules", {})[section] = {}
+                    seen.add(section)
+                continue
+            if section is None:
+                raise ValueError(f"pattern line outside a section on line {line_number}: {line}")
+            if is_metadata_section(section):
+                if section.lower().startswith("bold "):
+                    continue
+                if "=" not in line:
+                    raise ValueError(f"expected key=value in [{section}] on line {line_number}")
+                key, value = line.split("=", 1)
+                key = key.strip().lower()
+                if key not in {"pe_fwd", "tro_msec", "rev_mode"}:
+                    raise ValueError(f"unknown DWI rule field {key!r} on line {line_number}")
+                patterns["metadata_rules"][section][key] = value.strip()
+            elif section in PATTERN_LIST_SECTIONS:
+                patterns[section].append(line)
+    return patterns
+
+
+def normalize_manufacturer(value):
+    value = str(value or "").strip().lower()
+    if "siemens" in value:
+        return "Siemens"
+    if "philips" in value:
+        return "Philips"
+    if value in {"ge", "ge medical systems"} or "general electric" in value:
+        return "GE"
+    return str(value).strip()
+
+
+def dwi_rule_values(rules, manufacturer):
+    manufacturer = normalize_manufacturer(manufacturer)
+    values = {}
+    sources = {}
+    for section, fields in rules.items():
+        lowered = section.lower()
+        if lowered == "defaults":
+            specificity = 0
+            matches = True
+            source = section
+        elif lowered.startswith("dwi manufacturer:"):
+            specificity = 1
+            rule_manufacturer = normalize_manufacturer(section.split(":", 1)[1])
+            matches = bool(manufacturer) and manufacturer.casefold() == rule_manufacturer.casefold()
+            source = section
+        elif lowered.startswith("manufacturer:"):
+            specificity = 1
+            rule_manufacturer = normalize_manufacturer(section.split(":", 1)[1])
+            matches = bool(manufacturer) and manufacturer.casefold() == rule_manufacturer.casefold()
+            source = section
+        else:
+            continue
+        if not matches:
+            continue
+        for key, value in fields.items():
+            if key in values and values[key] != value and sources[key][0] == specificity:
+                raise ValueError(f"conflicting DWI rules for {key}: {sources[key][1]} and {source}")
+            if key not in values or specificity >= sources[key][0]:
+                values[key] = value
+                sources[key] = (specificity, source)
+    return values
 
 
 def find_sessions(subject_folder):
@@ -142,8 +251,8 @@ def axis_direction(image, phase_encoding):
     return f"{source}>>{target}"
 
 
-def resolve_pe(image, metadata, explicit, path):
-    value = explicit or metadata.get("PhaseEncodingDirection")
+def resolve_pe(image, metadata, explicit, fallback, path):
+    value = explicit or metadata.get("PhaseEncodingDirection") or fallback
     if not value:
         raise ValueError(f"missing PE_FWD/PhaseEncodingDirection for {path}")
     if str(value).upper() in {"A>>P", "P>>A", "R>>L", "L>>R", "I>>S", "S>>I"}:
@@ -151,7 +260,7 @@ def resolve_pe(image, metadata, explicit, path):
     return axis_direction(image, value)
 
 
-def resolve_tro(metadata, explicit, path):
+def resolve_tro(metadata, explicit, fallback, path):
     if explicit is not None:
         try:
             value = float(explicit)
@@ -161,6 +270,15 @@ def resolve_tro(metadata, explicit, path):
             raise ValueError(f"TRO_MSEC must be positive for {path}")
         return f"{value:g}"
     value = metadata.get("TotalReadoutTime")
+    if value is None and fallback is not None:
+        value = fallback
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"invalid rule TRO_MSEC {fallback!r} for {path}") from error
+        if value <= 0:
+            raise ValueError(f"rule TRO_MSEC must be positive for {path}")
+        return f"{value:g}"
     if value is None:
         raise ValueError(f"missing TRO_MSEC: JSON lacks TotalReadoutTime for {path}")
     try:
@@ -183,16 +301,19 @@ def find_anat(subject_folder, session_folder, patterns):
     return None
 
 
-def record_for(subject_folder, session_folder, args):
-    dwi_files = matching_files(session_folder / "dwi", args.dwi_pattern)
+def record_for(subject_folder, session_folder, args, patterns):
+    dwi_patterns = args.dwi_pattern or patterns["dwi_patterns"]
+    reverse_patterns = args.reverse_dwi_pattern or patterns["dwi_reverse_pe_patterns"]
+    anat_patterns = args.anat_pattern or patterns["anat_patterns"]
+    dwi_files = matching_files(session_folder / "dwi", dwi_patterns)
     if not dwi_files:
         raise SkipRecord("missing DWI NIfTI")
-    reverse_files = [path for path in dwi_files if matches_any(path, args.reverse_dwi_pattern)]
+    reverse_files = [path for path in dwi_files if matches_any(path, reverse_patterns)]
     forward_files = [path for path in dwi_files if path not in reverse_files]
     if not forward_files:
         forward_files = dwi_files
         reverse_files = []
-    anat = find_anat(subject_folder, session_folder, args.anat_pattern)
+    anat = find_anat(subject_folder, session_folder, anat_patterns)
     if anat is None:
         raise SkipRecord("missing T1 anatomy")
     if not anat.is_file() or anat.stat().st_size == 0:
@@ -202,14 +323,20 @@ def record_for(subject_folder, session_folder, args):
         raise ValueError(f"T1 anatomy must be 3D: {anat} has shape {anat_image.shape}")
 
     validated = []
+    rule_values = None
     for path in forward_files:
         shape, _, _ = validate_dwi(path)
         metadata = load_json(sidecar_for(path)) if sidecar_for(path).is_file() else None
         if metadata is None:
             raise ValueError(f"missing JSON sidecar for DWI: {path}")
         image = load_nifti(path)
-        pe = resolve_pe(image, metadata, args.pe_fwd, path)
-        tro = resolve_tro(metadata, args.tro_msec, path)
+        current_rules = dwi_rule_values(patterns["metadata_rules"], metadata.get("Manufacturer"))
+        if rule_values is None:
+            rule_values = current_rules
+        elif current_rules != rule_values:
+            raise ValueError(f"forward DWI runs disagree on manufacturer rules in {label_for(subject_folder, session_folder)}")
+        pe = resolve_pe(image, metadata, args.pe_fwd, current_rules.get("pe_fwd"), path)
+        tro = resolve_tro(metadata, args.tro_msec, current_rules.get("tro_msec"), path)
         validated.append((path, pe, tro, shape))
 
     pe_values = {(item[1], item[2]) for item in validated}
@@ -219,7 +346,10 @@ def record_for(subject_folder, session_folder, args):
 
     reverse = None
     pe_rev = None
-    if args.rev_mode == "REF":
+    rev_mode = str(args.rev_mode or (rule_values or {}).get("rev_mode") or "NONE").upper()
+    if rev_mode not in REV_MODE_CHOICES:
+        raise ValueError(f"invalid REV_MODE {rev_mode!r}; expected NONE or REF")
+    if rev_mode == "REF":
         if not reverse_files:
             raise SkipRecord("REV_MODE=REF but no reverse-PE DWI was found")
         reverse = reverse_files[0]
@@ -237,6 +367,7 @@ def record_for(subject_folder, session_folder, args):
         "pe_fwd": pe_fwd,
         "pe_rev": pe_rev,
         "tro_msec": tro_msec,
+        "rev_mode": rev_mode,
         "shapes": [item[3] for item in validated],
     }
 
@@ -253,7 +384,7 @@ def row_for_record(record, args):
         f"ZCLIP={args.zclip}",
         f"TRO_MSEC={record['tro_msec']}",
         f"PE_FWD={record['pe_fwd']}",
-        f"REV_MODE={args.rev_mode}",
+        f"REV_MODE={record['rev_mode']}",
     ]
     if record["reverse"] is not None:
         fields.insert(2, f"DIFF_REV={record['reverse']}")
@@ -274,12 +405,12 @@ def inspect_record(record):
         f"  TRO_MSEC: {record['tro_msec']}",
         f"  PE_FWD: {record['pe_fwd']}",
         f"  PE_REV: {record['pe_rev'] or 'none'}",
-        f"  REV_MODE: {'REF' if record['reverse'] else 'NONE'}",
+        f"  REV_MODE: {record['rev_mode']}",
     ])
     return "\n".join(lines)
 
 
-def build_records(args):
+def build_records(args, patterns):
     root = Path(args.bids_root).expanduser().resolve()
     if not root.is_dir():
         sys.exit(f"ERROR: missing BIDS root: {root}")
@@ -296,7 +427,7 @@ def build_records(args):
             sessions += 1
             prefix = label_for(subject, session)
             try:
-                records.append(record_for(subject, session, args))
+                records.append(record_for(subject, session, args, patterns))
             except SkipRecord as error:
                 skipped.append((prefix, str(error)))
                 print(f"[{index}/{len(subjects)}] SKIPPING {prefix}: {error}", flush=True)
@@ -318,27 +449,30 @@ def parse_args():
     required.add_argument("--bids-root", required=True, metavar="PATH", help="BIDS dataset root")
     required.add_argument("--output", required=True, metavar="FILE", help="Output OPPNI-D input file")
     optional = parser.add_argument_group("optional")
+    optional.add_argument("--patterns", metavar="FILE", help="Shared dataset filename and DWI metadata rules")
     optional.add_argument("--dwi-pattern", action="append", help="DWI filename pattern; repeatable")
     optional.add_argument("--anat-pattern", action="append", help="T1 filename pattern; repeatable")
     optional.add_argument("--reverse-dwi-pattern", action="append", help="Reverse-PE DWI pattern; repeatable")
     optional.add_argument("--pe-fwd", metavar="VALUE", help="Override PE_FWD, for example A>>P")
     optional.add_argument("--pe-rev", metavar="VALUE", help="Override PE_REV, for example P>>A")
     optional.add_argument("--tro-msec", metavar="VALUE", help="Override TRO_MSEC in milliseconds")
-    optional.add_argument("--rev-mode", choices=sorted(REV_MODE_CHOICES), default="NONE", help="Reverse-PE mode")
+    optional.add_argument("--rev-mode", choices=sorted(REV_MODE_CHOICES), default=None, help="Reverse-PE mode")
     optional.add_argument("--zclip", default="AUTO", help="OPPNI-D ZCLIP value")
     optional.add_argument("--subject", help="Only include subjects whose folder name contains this text")
     optional.add_argument("--session", help="Only include sessions whose folder name contains this text")
     optional.add_argument("--inspect", action="store_true", help="Print resolved files and metadata")
     args = parser.parse_args()
-    args.dwi_pattern = args.dwi_pattern or list(DEFAULT_DWI_PATTERNS)
-    args.anat_pattern = args.anat_pattern or list(DEFAULT_ANAT_PATTERNS)
-    args.reverse_dwi_pattern = args.reverse_dwi_pattern or list(DEFAULT_REVERSE_PATTERNS)
     return args
 
 
 def main():
     args = parse_args()
-    records, skipped, errors = build_records(args)
+    try:
+        patterns = load_patterns(args.patterns)
+    except (OSError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        sys.exit(1)
+    records, skipped, errors = build_records(args, patterns)
     if errors:
         print("ERROR: one or more acquisitions failed validation; no output was written", file=sys.stderr)
         sys.exit(1)

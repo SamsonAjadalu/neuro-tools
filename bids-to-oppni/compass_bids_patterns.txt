@@ -8,19 +8,23 @@
 *bold*.nii.gz
 *bold*.nii
 
+[dwi_patterns]
+*dwi*.nii.gz
+*dwi*.nii
+
 [func_exclude_patterns]
 *sbref*
 *acq-rev*
 *dir-PA*
 *dir-flipped*
 
-[reverse_pe_patterns]
+[func_reverse_pe_patterns]
 *acq-rev*bold*.nii.gz
-*acq-rev*bold*.nii
 *dir-PA*bold*.nii.gz
-*dir-PA*bold*.nii
-*dir-flipped*bold*.nii.gz
-*dir-flipped*bold*.nii
+
+[dwi_reverse_pe_patterns]
+*acq-rev*dwi*.nii.gz
+*dir-PA*dwi*.nii.gz
 
 [fieldmap_magnitude_patterns]
 *magnitude1*.nii.gz
@@ -32,15 +36,20 @@
 *phasediff*.nii.gz
 *phasediff*.nii
 
-[manufacturer:Philips]
+[bold manufacturer:Philips]
 tpattern=alt+z
 tr_msec=[2110]
 
-[manufacturer:GE]
+[bold manufacturer:GE]
 tpattern=alt+z
 tr_msec=[2500]
 
-[manufacturer:Siemens]
+[bold manufacturer:Siemens]
 tpattern=parity_alt+z
 slice_axis=k
 tr_msec=[2130]
+
+[dwi manufacturer:Siemens]
+pe_fwd=A>>P
+tro_msec=39.2393
+rev_mode=NONE

@@ -12,6 +12,9 @@ from pathlib import Path
 DEFAULT_PATTERNS = {
     "anat_patterns": ["*T1w*.nii.gz", "*T1w*.nii"],
     "func_patterns": ["*bold*.nii.gz", "*bold*.nii"],
+    "dwi_patterns": ["*dwi*.nii.gz", "*dwi*.nii"],
+    "func_reverse_pe_patterns": [],
+    "dwi_reverse_pe_patterns": [],
     "func_exclude_patterns": ["*sbref*", "*acq-rev*", "*dir-PA*", "*dir-flipped*"],
     "reverse_pe_patterns": [
         "*acq-rev*bold*.nii.gz",
@@ -82,6 +85,8 @@ def load_text_patterns(pattern_file, patterns):
                 sys.exit(f"ERROR: pattern line outside a section on line {line_number}: {line}")
 
             if is_metadata_section(section):
+                if section.lower().startswith("dwi "):
+                    continue
                 if "=" not in line:
                     sys.exit(f"ERROR: expected key=value in [{section}] on line {line_number}")
                 key, value = line.split("=", 1)
@@ -96,6 +101,9 @@ def load_text_patterns(pattern_file, patterns):
 def is_metadata_section(section):
     return (
         section.lower() == "defaults"
+        or re.fullmatch(r"(?:bold|dwi) manufacturer:.+", section, re.IGNORECASE) is not None
+        or re.fullmatch(r"(?:bold|dwi) site:.+", section, re.IGNORECASE) is not None
+        or re.fullmatch(r"(?:bold|dwi) site:.+ manufacturer:.+", section, re.IGNORECASE) is not None
         or re.fullmatch(r"manufacturer:.+", section, re.IGNORECASE) is not None
         or re.fullmatch(r"site:.+", section, re.IGNORECASE) is not None
         or re.fullmatch(r"site:.+ manufacturer:.+", section, re.IGNORECASE) is not None
@@ -199,7 +207,8 @@ def find_func(session_folder, patterns):
 
 
 def find_reverse_pe(session_folder, patterns):
-    return first_matching_file(session_folder / "func", patterns["reverse_pe_patterns"])
+    reverse_patterns = patterns.get("func_reverse_pe_patterns") or patterns["reverse_pe_patterns"]
+    return first_matching_file(session_folder / "func", reverse_patterns)
 
 
 def find_fieldmap(session_folder, patterns):
@@ -371,22 +380,27 @@ def write_timing_file(func_file, values, metadata_dir):
 
 
 def parse_rule_section(section):
+    scope = "bold"
+    scoped = re.fullmatch(r"(bold|dwi)\s+(.+)", section, re.IGNORECASE)
+    if scoped:
+        scope = scoped.group(1).lower()
+        section = scoped.group(2).strip()
     if section.lower() == "defaults":
-        return "defaults", "", ""
+        return "defaults", "", "", scope
     combined = re.fullmatch(r"site:(.+) manufacturer:(.+)", section, re.IGNORECASE)
     if combined:
-        return "combined", combined.group(1).strip(), normalize_manufacturer(combined.group(2))
+        return "combined", combined.group(1).strip(), normalize_manufacturer(combined.group(2)), scope
     manufacturer = re.fullmatch(r"manufacturer:(.+)", section, re.IGNORECASE)
     if manufacturer:
-        return "manufacturer", "", normalize_manufacturer(manufacturer.group(1))
+        return "manufacturer", "", normalize_manufacturer(manufacturer.group(1)), scope
     site = re.fullmatch(r"site:(.+)", section, re.IGNORECASE)
     if site:
-        return "site", site.group(1).strip(), ""
-    return None, "", ""
+        return "site", site.group(1).strip(), "", scope
+    return None, "", "", scope
 
 
 def rule_matches(section, site, manufacturer):
-    kind, rule_site, rule_manufacturer = parse_rule_section(section)
+    kind, rule_site, rule_manufacturer, _ = parse_rule_section(section)
     if kind == "defaults":
         return True
     if kind == "manufacturer":
@@ -398,13 +412,13 @@ def rule_matches(section, site, manufacturer):
     return False
 
 
-def resolve_rule_values(rules, site, manufacturer):
+def resolve_rule_values(rules, site, manufacturer, scope="bold"):
     resolved = {}
     sources = {}
     specificity = {"defaults": 0, "manufacturer": 1, "site": 2, "combined": 3}
     for section, values in rules.items():
-        kind, _, _ = parse_rule_section(section)
-        if kind is None or not rule_matches(section, site, manufacturer):
+        kind, _, _, rule_scope = parse_rule_section(section)
+        if kind is None or (rule_scope not in {scope, "common"}) or not rule_matches(section, site, manufacturer):
             continue
         for field, value in values.items():
             if field in resolved and specificity[kind] == specificity[sources[field][0]] and resolved[field] != value:
@@ -437,7 +451,7 @@ def resolve_run_metadata(func_file, args, patterns, bids_root, metadata_dir, par
     manufacturer = normalize_manufacturer(data.get("Manufacturer"))
     participant = next((part for part in func_file.parts if part.startswith("sub-")), "")
     site = participants.get(participant, "") or metadata_value(data, "SiteName", "InstitutionName", "StationName")
-    rules, rule_sources = resolve_rule_values(patterns["metadata_rules"], site, manufacturer)
+    rules, rule_sources = resolve_rule_values(patterns["metadata_rules"], site, manufacturer, scope="bold")
     tpattern = args.tpattern
     tr_msec = args.tr_msec
     tpattern_source = "explicit" if tpattern is not None else None
