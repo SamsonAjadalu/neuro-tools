@@ -57,3 +57,36 @@ Use the following for the complete DWI CLI options:
 ```bash
 python bids_to_oppni_d_input.py --help
 ```
+
+## Pattern files
+
+Pattern files describe dataset-specific filename patterns and metadata
+fallbacks. Common sections include:
+
+- `[anat_patterns]` - T1 anatomy used by both generators
+- `[func_patterns]` - BOLD files used by OPPNI-B
+- `[dwi_patterns]` - diffusion files used by OPPNI-D
+- `[func_reverse_pe_patterns]` - reverse-PE BOLD files
+- `[dwi_reverse_pe_patterns]` - reverse-PE diffusion files
+
+Scanner-specific metadata can provide values missing from BIDS JSON sidecars.
+For example:
+
+```ini
+[bold manufacturer:Siemens]
+tpattern=parity_alt+z
+slice_axis=k
+tr_msec=[2130]
+
+[dwi manufacturer:Siemens]
+pe_fwd=A>>P
+tro_msec=39.2393
+rev_mode=NONE
+```
+
+These are dataset-specific examples, not universal Siemens settings. See
+`compass_bids_patterns.txt` for a complete COMPASS-ND example.
+
+`parity_alt+z` resolves to `alt+z` for an odd number of slices and `alt+z2`
+for an even number. When JSON provides `SliceTiming`, the generator uses the
+exact generated timing file instead.
