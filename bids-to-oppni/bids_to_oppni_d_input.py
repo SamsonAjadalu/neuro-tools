@@ -5,6 +5,7 @@ import argparse
 import fnmatch
 import json
 import math
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -57,8 +58,7 @@ def matches_any(path, patterns):
 def is_metadata_section(section):
     return (
         section.lower() == "defaults"
-        or section.lower().startswith("bold manufacturer:")
-        or section.lower().startswith("dwi manufacturer:")
+        or re.match(r"^(?:bold|dwi)\s+manufacturer:", section, re.IGNORECASE)
         or section.lower().startswith("manufacturer:")
     )
 
@@ -100,7 +100,14 @@ def load_patterns(pattern_file):
                     raise ValueError(f"expected key=value in [{section}] on line {line_number}")
                 key, value = line.split("=", 1)
                 key = key.strip().lower()
-                if key not in {"pe_fwd", "tro_msec", "rev_mode"}:
+                if key not in {
+                    "pe_fwd",
+                    "tro_msec",
+                    "rev_mode",
+                    "echo_spacing_msec",
+                    "accel_factor",
+                    "recon_matrix_pe",
+                }:
                     raise ValueError(f"unknown DWI rule field {key!r} on line {line_number}")
                 patterns["metadata_rules"][section][key] = value.strip()
             elif section in PATTERN_LIST_SECTIONS:
@@ -119,28 +126,74 @@ def normalize_manufacturer(value):
     return str(value).strip()
 
 
-def dwi_rule_values(rules, manufacturer):
-    manufacturer = normalize_manufacturer(manufacturer)
+def normalize_text(value):
+    return " ".join(str(value or "").split()).casefold()
+
+
+def parse_dwi_rule_section(section):
+    body = section.strip()
+    if body.lower().startswith("dwi "):
+        body = body[4:].strip()
+    if body.lower() == "defaults":
+        return {"specificity": 0, "manufacturer": "", "model": "", "protocol": "", "tr": None, "te": None}
+
+    match = re.fullmatch(
+        r"manufacturer:(?P<manufacturer>.*?)\s+model:(?P<model>.*?)\s+protocol:(?P<protocol>.*?)"
+        r"(?:\s+tr:(?P<tr>\S+))?(?:\s+te:(?P<te>\S+))?",
+        body,
+        re.IGNORECASE,
+    )
+    if match:
+        return {
+            "specificity": 3 + bool(match.group("tr")) + bool(match.group("te")),
+            "manufacturer": normalize_manufacturer(match.group("manufacturer")),
+            "model": normalize_text(match.group("model")),
+            "protocol": normalize_text(match.group("protocol")),
+            "tr": match.group("tr"),
+            "te": match.group("te"),
+        }
+
+    match = re.fullmatch(r"manufacturer:(.+)", body, re.IGNORECASE)
+    if match:
+        return {
+            "specificity": 1,
+            "manufacturer": normalize_manufacturer(match.group(1)),
+            "model": "",
+            "protocol": "",
+            "tr": None,
+            "te": None,
+        }
+    return None
+
+
+def numeric_match(rule_value, metadata_value):
+    if rule_value is None:
+        return True
+    try:
+        return math.isclose(float(rule_value), float(metadata_value), rel_tol=0, abs_tol=1e-6)
+    except (TypeError, ValueError):
+        return False
+
+
+def dwi_rule_values(rules, metadata):
+    manufacturer = normalize_manufacturer(metadata.get("Manufacturer"))
+    model = normalize_text(metadata.get("ManufacturersModelName"))
+    protocol = normalize_text(metadata.get("ProtocolName"))
     values = {}
     sources = {}
     for section, fields in rules.items():
-        lowered = section.lower()
-        if lowered == "defaults":
-            specificity = 0
-            matches = True
-            source = section
-        elif lowered.startswith("dwi manufacturer:"):
-            specificity = 1
-            rule_manufacturer = normalize_manufacturer(section.split(":", 1)[1])
-            matches = bool(manufacturer) and manufacturer.casefold() == rule_manufacturer.casefold()
-            source = section
-        elif lowered.startswith("manufacturer:"):
-            specificity = 1
-            rule_manufacturer = normalize_manufacturer(section.split(":", 1)[1])
-            matches = bool(manufacturer) and manufacturer.casefold() == rule_manufacturer.casefold()
-            source = section
-        else:
+        rule = parse_dwi_rule_section(section)
+        if rule is None:
             continue
+        specificity = rule["specificity"]
+        matches = (
+            (not rule["manufacturer"] or manufacturer.casefold() == rule["manufacturer"].casefold())
+            and (not rule["model"] or model == rule["model"])
+            and (not rule["protocol"] or protocol == rule["protocol"])
+            and numeric_match(rule["tr"], metadata.get("RepetitionTime"))
+            and numeric_match(rule["te"], metadata.get("EchoTime"))
+        )
+        source = section
         if not matches:
             continue
         for key, value in fields.items():
@@ -271,7 +324,21 @@ def resolve_tro(metadata, explicit, fallback, path):
         return f"{value:g}"
     value = metadata.get("TotalReadoutTime")
     if value is None and fallback is not None:
-        value = fallback
+        if fallback.get("tro_msec") is not None:
+            value = fallback["tro_msec"]
+        else:
+            try:
+                echo_spacing = float(fallback["echo_spacing_msec"])
+                accel_factor = float(fallback["accel_factor"])
+                recon_matrix_pe = int(fallback["recon_matrix_pe"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    f"rule must provide tro_msec or echo_spacing_msec, accel_factor, and recon_matrix_pe for {path}"
+                ) from error
+            if echo_spacing <= 0 or accel_factor <= 0 or recon_matrix_pe <= 1:
+                raise ValueError(f"invalid DWI timing rule for {path}")
+            # Convert protocol echo spacing to OPPNI total readout time.
+            value = echo_spacing / accel_factor * (recon_matrix_pe - 1)
         try:
             value = float(value)
         except (TypeError, ValueError) as error:
@@ -330,13 +397,11 @@ def record_for(subject_folder, session_folder, args, patterns):
         if metadata is None:
             raise ValueError(f"missing JSON sidecar for DWI: {path}")
         image = load_nifti(path)
-        current_rules = dwi_rule_values(patterns["metadata_rules"], metadata.get("Manufacturer"))
+        current_rules = dwi_rule_values(patterns["metadata_rules"], metadata)
         if rule_values is None:
             rule_values = current_rules
-        elif current_rules != rule_values:
-            raise ValueError(f"forward DWI runs disagree on manufacturer rules in {label_for(subject_folder, session_folder)}")
         pe = resolve_pe(image, metadata, args.pe_fwd, current_rules.get("pe_fwd"), path)
-        tro = resolve_tro(metadata, args.tro_msec, current_rules.get("tro_msec"), path)
+        tro = resolve_tro(metadata, args.tro_msec, current_rules, path)
         validated.append((path, pe, tro, shape))
 
     pe_values = {(item[1], item[2]) for item in validated}

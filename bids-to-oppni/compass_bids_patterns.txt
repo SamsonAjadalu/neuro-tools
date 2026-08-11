@@ -49,7 +49,81 @@ tpattern=parity_alt+z
 slice_axis=k
 tr_msec=[2130]
 
-[dwi manufacturer:Siemens]
+# COMPASS-ND DWI protocol fallbacks. JSON metadata takes precedence.
+
+[dwi manufacturer:SIEMENS model:TrioTim protocol:DTI]
 pe_fwd=A>>P
-tro_msec=39.2393
+echo_spacing_msec=0.69
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:SIEMENS model:Prisma protocol:DTI-EDM]
+pe_fwd=A>>P
+echo_spacing_msec=0.57
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:SIEMENS model:Prisma protocol:DTI]
+pe_fwd=A>>P
+echo_spacing_msec=0.57
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:SIEMENS model:Prisma_fit protocol:DTI-EDM]
+pe_fwd=A>>P
+echo_spacing_msec=0.57
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:SIEMENS model:Prisma_fit protocol:DTI tr:6.9]
+pe_fwd=A>>P
+echo_spacing_msec=0.57
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:SIEMENS model:Prisma_fit protocol:DTI tr:9.4]
+pe_fwd=A>>P
+echo_spacing_msec=0.69
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:SIEMENS model:Prisma_fit protocol:DWI]
+pe_fwd=A>>P
+echo_spacing_msec=0.69
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:SIEMENS model:Skyra protocol:DTI]
+pe_fwd=A>>P
+echo_spacing_msec=0.69
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:SIEMENS model:Biograph_mMR protocol:ep2d_diff_30dir_AP]
+pe_fwd=A>>P
+echo_spacing_msec=0.69
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:Philips model:Ingenia protocol:DTI_32_iso]
+pe_fwd=A>>P
+echo_spacing_msec=0.68
+accel_factor=2
+recon_matrix_pe=128
+rev_mode=NONE
+
+[dwi manufacturer:Philips model:Ingenia protocol:WIP DTI_32_iso]
+pe_fwd=A>>P
+echo_spacing_msec=0.68
+accel_factor=2
+recon_matrix_pe=128
 rev_mode=NONE

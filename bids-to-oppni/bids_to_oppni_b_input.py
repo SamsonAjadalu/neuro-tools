@@ -102,6 +102,7 @@ def is_metadata_section(section):
     return (
         section.lower() == "defaults"
         or re.fullmatch(r"(?:bold|dwi) manufacturer:.+", section, re.IGNORECASE) is not None
+        or re.fullmatch(r"(?:bold|dwi) manufacturer:.+ model:.+ protocol:.+(?: tr:\S+)?(?: te:\S+)?", section, re.IGNORECASE) is not None
         or re.fullmatch(r"(?:bold|dwi) site:.+", section, re.IGNORECASE) is not None
         or re.fullmatch(r"(?:bold|dwi) site:.+ manufacturer:.+", section, re.IGNORECASE) is not None
         or re.fullmatch(r"manufacturer:.+", section, re.IGNORECASE) is not None
