@@ -1,0 +1,26 @@
+# COMPASS-ND source-to-BIDS configuration.
+
+[dataset]
+name=COMPASS-ND
+source_extension=.mnc,.nii,.nii.gz
+filename_template={prefix}_{subject}_{session}_{scan}_{run}
+subject_template={subject}
+session_template=initialMRI
+
+[scans]
+resting_state=rest
+dti=dwi
+3d_t1w=T1w
+2d_flair=FLAIR
+dual_t2=T2w
+dual_pd=PDw
+t2_star=T2starw
+
+[bids_scan_types]
+rest=datatype=func,task=rest,suffix=bold
+dwi=datatype=dwi,suffix=dwi
+T1w=datatype=anat,suffix=T1w
+FLAIR=datatype=anat,suffix=FLAIR
+T2w=datatype=anat,suffix=T2w
+PDw=datatype=anat,suffix=PDw
+T2starw=datatype=anat,suffix=T2starw

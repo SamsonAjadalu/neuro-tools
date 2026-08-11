@@ -1,3 +1,7 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# Local source-to-BIDS tests and development notes.
+source-to-bids/test_source_to_bids.py
+source-to-bids/source_to_bids_modifications.md

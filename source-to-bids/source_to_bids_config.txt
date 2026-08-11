@@ -1,0 +1,18 @@
+# Generic source-to-BIDS configuration template.
+# Copy this file and edit the rules for a source dataset.
+
+[dataset]
+name=Converted imaging dataset
+# One extension or a comma-separated list: .mnc,.nii,.nii.gz
+source_extension=.mnc
+filename_template={prefix}_{subject}_{session}_{scan}_{run}
+subject_template={subject}
+session_template={session}
+
+[scans]
+# source scan token = BIDS scan type
+# example_scan=bold
+
+[bids_scan_types]
+# BIDS scan type = output fields
+# bold=datatype=func,task=rest,suffix=bold
