@@ -1,4 +1,4 @@
-# Filename patterns for bids_to_oppni_input.py.
+# Filename patterns for bids_to_oppni_b_input.py.
 # Blank lines and lines starting with # are ignored.
 
 [anat_patterns]

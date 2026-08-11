@@ -8,7 +8,7 @@ Use `bids_patterns.txt` for general BIDS filename patterns. Use
 `compass_bids_patterns.txt` for shared COMPASS-ND BOLD and DWI rules.
 
 ```bash
-python bids_to_oppni_input.py \
+python bids_to_oppni_b_input.py \
   --bids-root BIDS_INPUT \
   --patterns compass_bids_patterns.txt \
   --output input_auto.txt
@@ -21,7 +21,7 @@ creates slice-timing files beside the output when `SliceTiming` is available.
 To print the selected files, metadata, resolved values, and their sources:
 
 ```bash
-python bids_to_oppni_input.py \
+python bids_to_oppni_b_input.py \
   --bids-root BIDS_INPUT \
   --patterns compass_bids_patterns.txt \
   --output input_auto.txt \
@@ -35,7 +35,7 @@ inputs. Metadata errors are reported immediately and stop output creation.
 Run the following for the complete list of CLI options:
 
 ```bash
-python bids_to_oppni_input.py --help
+python bids_to_oppni_b_input.py --help
 ```
 
 ## Diffusion
