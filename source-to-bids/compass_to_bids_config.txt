@@ -9,6 +9,8 @@ session_template=initialMRI
 
 [scans]
 resting_state=rest
+resting_state_sb=rest_sb
+resting_state_mb=rest_mb
 dti=dwi
 3d_t1w=T1w
 2d_flair=FLAIR
@@ -18,6 +20,8 @@ t2_star=T2starw
 
 [bids_scan_types]
 rest=datatype=func,task=rest,suffix=bold
+rest_sb=datatype=func,task=rest,acq=sb,suffix=bold
+rest_mb=datatype=func,task=rest,acq=mb,suffix=bold
 dwi=datatype=dwi,suffix=dwi
 T1w=datatype=anat,suffix=T1w
 FLAIR=datatype=anat,suffix=FLAIR
