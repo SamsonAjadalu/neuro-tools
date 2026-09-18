@@ -196,22 +196,19 @@ def read_nifti_source(source):
         else:
             json_source = source.with_suffix(".json")
 
+        time_source = None
+
         if json_source.exists():
-            # JSON is the metadata authority when supplied.
+            # If a JSON sidecar exists, use it as the metadata source.
             metadata = json.loads(
                 json_source.read_text(encoding="utf-8")
             )
-            metadata_source = f"source JSON sidecar: {json_source.name}"
 
         else:
-            # No JSON exists, so recover what we safely can from
-            # the NIfTI header.
+            # Otherwise recover what we safely can from the NIfTI header.
             metadata = {}
             header = image.header
 
-            # For a 4D NIfTI, pixdim[4]/zoom[3] contains the
-            # temporal spacing. Convert it to seconds according
-            # to the NIfTI time-unit declaration.
             if len(image.shape) >= 4:
                 zooms = header.get_zooms()
 
@@ -226,18 +223,19 @@ def read_nifti_source(source):
 
                     if time_unit in {"sec", "msec", "usec"}:
                         metadata["RepetitionTime"] = time_step
+                        time_source = (
+                            f"NIfTI header temporal spacing ({time_unit})"
+                        )
 
             description = text_value(header["descrip"])
             if description:
                 metadata["NIfTIHeaderDescription"] = description
 
-            metadata_source = "NIfTI header"
-
         return (
             MincHeader(tuple(image.shape), image.affine),
             metadata,
             {},
-            metadata_source,
+            time_source,
         )
 
     except (
