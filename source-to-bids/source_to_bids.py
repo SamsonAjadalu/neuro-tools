@@ -181,12 +181,74 @@ def read_nifti_source(source):
     try:
         import nibabel as nib
     except ModuleNotFoundError as error:
-        raise ConversionError("NIfTI organization requires nibabel in the active environment") from error
+        raise ConversionError(
+            "NIfTI organization requires nibabel in the active environment"
+        ) from error
+
     try:
         image = nib.load(str(source))
-        return MincHeader(tuple(image.shape), image.affine), {}, {}, None
-    except (OSError, ValueError, RuntimeError) as error:
-        raise ConversionError(f"could not read NIfTI header: {source}: {error}") from error
+
+        # Matching JSON sidecar:
+        # image.nii.gz -> image.json
+        # image.nii    -> image.json
+        if source.name.lower().endswith(".nii.gz"):
+            json_source = source.with_suffix("").with_suffix(".json")
+        else:
+            json_source = source.with_suffix(".json")
+
+        if json_source.exists():
+            # JSON is the metadata authority when supplied.
+            metadata = json.loads(
+                json_source.read_text(encoding="utf-8")
+            )
+            metadata_source = f"source JSON sidecar: {json_source.name}"
+
+        else:
+            # No JSON exists, so recover what we safely can from
+            # the NIfTI header.
+            metadata = {}
+            header = image.header
+
+            # For a 4D NIfTI, pixdim[4]/zoom[3] contains the
+            # temporal spacing. Convert it to seconds according
+            # to the NIfTI time-unit declaration.
+            if len(image.shape) >= 4:
+                zooms = header.get_zooms()
+
+                if len(zooms) >= 4 and zooms[3] > 0:
+                    _, time_unit = header.get_xyzt_units()
+                    time_step = float(zooms[3])
+
+                    if time_unit == "msec":
+                        time_step /= 1000.0
+                    elif time_unit == "usec":
+                        time_step /= 1_000_000.0
+
+                    if time_unit in {"sec", "msec", "usec"}:
+                        metadata["RepetitionTime"] = time_step
+
+            description = text_value(header["descrip"])
+            if description:
+                metadata["NIfTIHeaderDescription"] = description
+
+            metadata_source = "NIfTI header"
+
+        return (
+            MincHeader(tuple(image.shape), image.affine),
+            metadata,
+            {},
+            metadata_source,
+        )
+
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        json.JSONDecodeError,
+    ) as error:
+        raise ConversionError(
+            f"could not read NIfTI source metadata: {source}: {error}"
+        ) from error
 
 
 def read_trusted_time_step(file, dimensions, source):
