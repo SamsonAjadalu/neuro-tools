@@ -377,6 +377,8 @@ def bids_destination(output_root, entities):
     name = f"{entities['subject']}_{entities['session']}"
     if entities.get("task"):
         name += f"_task-{entities['task']}"
+    if entities.get("acq"):
+        name += f"_acq-{entities['acq']}"
     if entities.get("run"):
         name += f"_run-{entities['run']}"
     name += f"_{entities['suffix']}.nii.gz"
