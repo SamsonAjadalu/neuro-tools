@@ -366,8 +366,8 @@ def parse_entities(source, parser, extension, source_format="minc"):
         raise ConversionError(f"no [bids_scan_types] rule for scan target: {scan_target}")
     subject = dataset.get("subject_template", "{subject}").format(**entities)
     session = dataset.get("session_template", "{session}").format(**entities)
-    subject = re.sub(r"[^A-Za-z0-9]+", "", subject)
-    session = re.sub(r"[^A-Za-z0-9]+", "", session)
+    subject = re.sub(r"[^A-Za-z0-9_+-]+", "", subject)
+    session = re.sub(r"[^A-Za-z0-9_+-]+", "", session)
     if not subject or not session:
         raise ConversionError(f"could not construct BIDS subject/session from: {source.name}")
     return {"subject": f"sub-{subject}", "session": f"ses-{session}", "scan": entities["scan"], "run": entities.get("run"), **scan_type}
