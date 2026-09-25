@@ -1,0 +1,41 @@
+# COMPASS connectivity QC patterns
+
+[anat_mask_qc]
+underlay = {subject}/anat_proc/anat1_2std.nii.gz
+overlay = {subject}/anat_proc/subpipe_001/anat_procss.nii.gz
+output = QC/anat_mask/{subject}.png
+underlay_cmap = gray
+overlay_cmap = jet
+overlay_alpha = 0.5
+n_slices = 21
+
+[func_mask_qc]
+underlay = {subject}/func_proc_p1/subpipe_001/warp/motref.nii.gz
+overlay = {subject}/func_proc_p1/subpipe_001/warp/motref_masked.nii.gz
+output = QC/func_mask/{subject}.png
+underlay_cmap = gray
+overlay_cmap = jet
+overlay_alpha = 0.5
+n_slices = 21
+
+[anat_template_warp_qc]
+underlay = {subject}/anat_proc/subpipe_001/anat_warped.nii.gz
+overlay = _group_level/masks/pipe_DB/anat_sulcal_mask_grp.nii
+output = QC/anat_warp/{subject}.png
+underlay_cmap = gray
+overlay_cmap = jet
+overlay_alpha = 0.5
+sagittal_mm = -50 -8 30
+coronal_mm = -65 -20 54
+axial_mm = -6 13 58
+
+[func_template_coverage_qc]
+underlay = {subject}/func_proc_p1/subpipe_001/postwarp/func1_warped_tav.nii.gz
+overlay = _group_level/masks/pipe_DB/func_brain_mask_grp.nii
+output = QC/func_warp/{subject}.png
+underlay_cmap = gray
+overlay_cmap = jet
+overlay_alpha = 0.5
+sagittal_mm = -50 -8 30
+coronal_mm = -65 -20 54
+axial_mm = -6 13 58

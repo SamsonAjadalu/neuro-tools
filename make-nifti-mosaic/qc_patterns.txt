@@ -1,0 +1,31 @@
+# `{subject}` identifies each subject directory below --input.
+
+[anat_mask]
+underlay = {subject}/anat_proc/anat1_2std.nii.gz
+overlay = {subject}/anat_proc/subpipe_001/anat_procss.nii.gz
+output = QC/{subject}.png
+overlay_alpha = 0.5
+
+[func_mask]
+underlay = {subject}/func_proc_p1/subpipe_001/warp/motref.nii.gz
+overlay = {subject}/func_proc_p1/subpipe_001/warp/motref_masked.nii.gz
+output = {subject}/func_mask.png
+overlay_alpha = 0.5
+
+[anat_warp]
+underlay = {subject}/anat_proc/subpipe_001/anat_warped.nii.gz
+overlay = anat_sulcal_mask_grp.nii
+output = {subject}/anat_warp.png
+overlay_alpha = 0.33
+sagittal_mm = -50 -8 30
+coronal_mm = -65 -20 54
+axial_mm = -6 13 58
+
+[func_anat]
+underlay = {subject}/anat_proc/subpipe_001/anat_warped.nii.gz
+overlay = {subject}/func_proc_p1/subpipe_001/postwarp/func1_warped_tav.nii.gz
+output = {subject}/func_anat_alignment.png
+overlay_alpha = 0.33
+sagittal_mm = -50 -8 30
+coronal_mm = -65 -20 54
+axial_mm = -6 13 58
