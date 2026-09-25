@@ -69,8 +69,14 @@ The default patterns example is [qc_patterns.txt](qc_patterns.txt).
 `S`, `C`, and `A` represent sagittal/world x, coronal/world y, and axial/world
 z. Manual coordinates use millimetres.
 
-Automatic selection produces axial views. Masked selection uses active mask
-voxels. Unmasked selection uses axial sums of absolute overlay values.
+Automatic selection produces axial views.
+
+Without `--mask`, the tool sums the absolute overlay values in each axial
+slice. `--min-active-percent 1` keeps slices with at least 1% of the activity
+of the most active slice.
+
+With `--mask`, `--min-active-voxels` sets the minimum number of active mask
+voxels required in a slice.
 
 Binary overlays use `[0, 1]` automatically. Continuous overlays use
 percentile-based display
