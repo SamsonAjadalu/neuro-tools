@@ -43,6 +43,7 @@ try:
     import numpy as np
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import LinearSegmentedColormap, Normalize
+    from matplotlib.patches import Rectangle
 except (ImportError, ModuleNotFoundError) as exc:
     raise SystemExit(
         "Required dependencies are missing or the environment is incomplete.\n"
@@ -518,6 +519,49 @@ def balanced_grid(n_views, max_columns=5):
     return rows, columns
 
 
+def fill_panel_gaps(fig, image_axes, dpi):
+    fig.canvas.draw()
+    boxes = [axis.get_position() for axis in image_axes]
+    epsilon_x = 2.0 / (fig.get_figwidth() * dpi)
+    epsilon_y = 2.0 / (fig.get_figheight() * dpi)
+
+    for index, first in enumerate(boxes):
+        for second in boxes[index + 1 :]:
+            overlap_y = min(first.y1, second.y1) - max(first.y0, second.y0)
+            overlap_x = min(first.x1, second.x1) - max(first.x0, second.x0)
+
+            if overlap_y >= 0.8 * min(first.height, second.height):
+                left, right = (first, second) if first.x0 <= second.x0 else (second, first)
+                gap = right.x0 - left.x1
+                if 0 < gap <= 0.15 * min(first.width, second.width):
+                    fig.add_artist(
+                        Rectangle(
+                            (left.x1 - epsilon_x, max(first.y0, second.y0) - epsilon_y),
+                            gap + 2 * epsilon_x,
+                            overlap_y + 2 * epsilon_y,
+                            transform=fig.transFigure,
+                            facecolor="black",
+                            edgecolor="none",
+                            zorder=-1,
+                        )
+                    )
+            elif overlap_x >= 0.8 * min(first.width, second.width):
+                lower, upper = (first, second) if first.y0 <= second.y0 else (second, first)
+                gap = upper.y0 - lower.y1
+                if 0 < gap <= 0.15 * min(first.height, second.height):
+                    fig.add_artist(
+                        Rectangle(
+                            (max(first.x0, second.x0) - epsilon_x, lower.y1 - epsilon_y),
+                            overlap_x + 2 * epsilon_x,
+                            gap + 2 * epsilon_y,
+                            transform=fig.transFigure,
+                            facecolor="black",
+                            edgecolor="none",
+                            zorder=-1,
+                        )
+                    )
+
+
 def signed_overlay_arrays(overlay, mask, threshold, signed_max):
     visible_mask = np.ones(overlay.shape, dtype=bool) if mask is None else mask == 1
     absolute = np.abs(overlay)
@@ -625,8 +669,18 @@ def render(args, underlay, overlay, mask, views, vmin, vmax, signed_max=None):
                 alpha=args.overlay_alpha,
                 interpolation="nearest",
             )
-        panel.set_title(title)
         panel.axis("off")
+        panel.text(
+            0.5,
+            0.985,
+            title,
+            ha="center",
+            va="top",
+            color="white",
+            fontsize=10,
+            transform=panel.transAxes,
+            zorder=5,
+        )
 
     figure_title = args.title
     if len(present) == 1:
@@ -641,7 +695,7 @@ def render(args, underlay, overlay, mask, views, vmin, vmax, signed_max=None):
         n_rows, columns = balanced_grid(len(flat_views), max_columns)
         layout_rows = [flat_views[start : start + columns] for start in range(0, len(flat_views), columns)]
         fig = plt.figure(figsize=(3.2 * columns, 3.2 * len(layout_rows)), constrained_layout=True)
-        grid = fig.add_gridspec(len(layout_rows), columns)
+        grid = fig.add_gridspec(len(layout_rows), columns, wspace=0, hspace=0)
         for row, row_views in enumerate(layout_rows):
             for column, view in enumerate(row_views):
                 panel = fig.add_subplot(grid[row, column])
@@ -658,7 +712,7 @@ def render(args, underlay, overlay, mask, views, vmin, vmax, signed_max=None):
             for start in range(0, len(orientation_views), columns)
         ]
         fig = plt.figure(figsize=(3.2 * columns, 3.2 * n_rows), constrained_layout=True)
-        grid = fig.add_gridspec(n_rows, columns)
+        grid = fig.add_gridspec(n_rows, columns, wspace=0, hspace=0)
         for row, row_views in enumerate(layout_rows):
             for column, view in enumerate(row_views):
                 panel = fig.add_subplot(grid[row, column])
@@ -678,6 +732,8 @@ def render(args, underlay, overlay, mask, views, vmin, vmax, signed_max=None):
             len(layout_rows),
             columns + 1,
             width_ratios=[label_width] + [1.0] * columns,
+            wspace=0,
+            hspace=0,
         )
         for row, (orientation, row_views, show_label) in enumerate(layout_rows):
             label_axis = fig.add_subplot(grid[row, 0])
@@ -722,6 +778,14 @@ def render(args, underlay, overlay, mask, views, vmin, vmax, signed_max=None):
         fig.colorbar(scalar_map, ax=image_axes, shrink=0.82, pad=0.02)
     if figure_title:
         fig.suptitle(figure_title, fontsize=14)
+    fig.get_layout_engine().set(
+        w_pad=0,
+        h_pad=0,
+        wspace=0,
+        hspace=0,
+        rect=(0.01, 0.01, 0.99, 0.93),
+    )
+    fill_panel_gaps(fig, image_axes, args.dpi)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=args.dpi, bbox_inches="tight", facecolor="white")
     plt.close(fig)
