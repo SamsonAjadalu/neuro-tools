@@ -297,6 +297,16 @@ def check_dwi_sidecars(path):
     return None, bval, bvec
 
 
+def validate_reverse_reference(path):
+    """Validate a reverse-PE reference image without requiring gradients."""
+    if not path.is_file() or path.stat().st_size == 0:
+        raise ValueError(f"missing or empty reverse-PE reference: {path}")
+    image = load_nifti(path)
+    if len(image.shape) not in (3, 4):
+        raise ValueError(f"reverse-PE reference must be 3D or 4D: {path} has shape {image.shape}")
+    return image.shape
+
+
 def axis_direction(image, phase_encoding):
     """Convert a BIDS phase-encoding axis to an OPPNI world-axis direction."""
     import nibabel as nib
@@ -436,9 +446,10 @@ def record_for(subject_folder, session_folder, args, patterns):
             raise SkipRecord("REV_MODE=REF but no reverse-PE DWI was found")
         reverse = reverse_files[0]
         if args.validate:
-            validate_dwi(reverse)
+            validate_reverse_reference(reverse)
         else:
-            check_dwi_sidecars(reverse)
+            if not reverse.is_file() or reverse.stat().st_size == 0:
+                raise ValueError(f"missing or empty reverse-PE reference: {reverse}")
         reverse_json = sidecar_for(reverse)
         if not reverse_json.is_file():
             raise ValueError(f"missing JSON sidecar for reverse DWI: {reverse}")
