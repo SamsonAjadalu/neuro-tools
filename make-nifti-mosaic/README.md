@@ -71,6 +71,8 @@ The default patterns example is [qc_patterns.txt](qc_patterns.txt).
 
 `S`, `C`, and `A` represent sagittal/world x, coronal/world y, and axial/world
 z. Manual coordinates use millimetres.
+Axial and coronal panels use neurological orientation: the subject's left
+appears on image left.
 
 Automatic selection produces axial views.
 

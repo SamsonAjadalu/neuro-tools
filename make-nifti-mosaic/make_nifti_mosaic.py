@@ -630,7 +630,10 @@ def render(args, underlay, overlay, mask, views, vmin, vmax, signed_max=None):
 
     figure_title = args.title
     if len(present) == 1:
-        orientation_name = ORIENTATION_NAMES[present[0][0]].capitalize()
+        orientation = present[0][0]
+        orientation_name = ORIENTATION_NAMES[orientation].capitalize()
+        if orientation in {"A", "C"}:
+            orientation_name += " (neurological orientation)"
         figure_title = f"{args.title} | {orientation_name}" if args.title else orientation_name
 
     if len(present) > 1 and not equal_counts:
