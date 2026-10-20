@@ -42,7 +42,7 @@ try:
     import nibabel as nib
     import numpy as np
     from matplotlib.cm import ScalarMappable
-    from matplotlib.colors import Normalize
+    from matplotlib.colors import LinearSegmentedColormap, Normalize
 except (ImportError, ModuleNotFoundError) as exc:
     raise SystemExit(
         "Required dependencies are missing or the environment is incomplete.\n"
@@ -62,6 +62,9 @@ DEFAULTS = {
     "underlay_cmap": "gray",
     "overlay_cmap": "jet",
     "overlay_alpha": 0.5,
+    "signed_overlay": False,
+    "signed_threshold": 0.0,
+    "signed_max": None,
     "dpi": 300,
 }
 PATTERN_PATH_KEYS = {"underlay", "overlay", "mask", "output"}
@@ -75,6 +78,9 @@ PATTERN_VALUE_KEYS = {
     "underlay_cmap",
     "overlay_cmap",
     "overlay_alpha",
+    "signed_overlay",
+    "signed_threshold",
+    "signed_max",
     "vmin",
     "vmax",
     "title",
@@ -110,6 +116,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--underlay-cmap", choices=SUPPORTED_CMAPS)
     parser.add_argument("--overlay-cmap", choices=SUPPORTED_CMAPS)
     parser.add_argument("--overlay-alpha", type=float)
+    parser.add_argument(
+        "--signed-overlay",
+        action="store_true",
+        default=None,
+        help="Display positive and negative overlay values on separate scales.",
+    )
+    parser.add_argument(
+        "--signed-threshold",
+        type=float,
+        help="Hide signed overlay values below this absolute magnitude (default: 0).",
+    )
+    parser.add_argument(
+        "--signed-max",
+        type=float,
+        help="Shared absolute display maximum; defaults to the largest visible magnitude.",
+    )
     parser.add_argument("--vmin", type=float)
     parser.add_argument("--vmax", type=float)
     parser.add_argument("--title")
@@ -134,7 +156,19 @@ def parse_pattern_value(key, value, section):
             return int(value)
         except ValueError as exc:
             raise ValueError(f"section [{section}] has invalid integer {key}") from exc
+    if key == "signed_overlay":
+        lowered = value.lower()
+        if lowered not in {"true", "false"}:
+            raise ValueError(
+                f"section [{section}] has invalid boolean signed_overlay; use true or false"
+            )
+        return lowered == "true"
     if key in {"min_active_percent", "overlay_alpha", "vmin", "vmax"}:
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(f"section [{section}] has invalid numeric {key}") from exc
+    if key in {"signed_threshold", "signed_max"}:
         try:
             return float(value)
         except ValueError as exc:
@@ -267,6 +301,9 @@ def apply_pattern_settings(args, section):
         "underlay_cmap": "underlay_cmap",
         "overlay_cmap": "overlay_cmap",
         "overlay_alpha": "overlay_alpha",
+        "signed_overlay": "signed_overlay",
+        "signed_threshold": "signed_threshold",
+        "signed_max": "signed_max",
         "vmin": "vmin",
         "vmax": "vmax",
         "title": "title",
@@ -481,7 +518,39 @@ def balanced_grid(n_views, max_columns=5):
     return rows, columns
 
 
-def render(args, underlay, overlay, mask, views, vmin, vmax):
+def signed_overlay_arrays(overlay, mask, threshold, signed_max):
+    visible_mask = np.ones(overlay.shape, dtype=bool) if mask is None else mask == 1
+    absolute = np.abs(overlay)
+    eligible = visible_mask & (absolute >= threshold) & (absolute > 0)
+    if not np.any(eligible):
+        raise ValueError(
+            "signed overlay has no visible nonzero values at or above "
+            f"--signed-threshold {threshold:g}"
+        )
+    positive = np.where(
+        eligible & (overlay > 0), np.clip(overlay, threshold, signed_max), np.nan
+    )
+    negative_magnitude = np.where(
+        eligible & (overlay < 0), np.clip(absolute, threshold, signed_max), np.nan
+    )
+    return positive, negative_magnitude
+
+
+def resolve_signed_max(overlay, mask, threshold, requested_max):
+    visible_mask = np.ones(overlay.shape, dtype=bool) if mask is None else mask == 1
+    absolute = np.abs(overlay)
+    eligible = visible_mask & (absolute >= threshold) & (absolute > 0)
+    if not np.any(eligible):
+        raise ValueError(
+            "signed overlay has no visible nonzero values at or above "
+            f"--signed-threshold {threshold:g}"
+        )
+    if requested_max is not None:
+        return float(requested_max)
+    return float(absolute[eligible].max())
+
+
+def render(args, underlay, overlay, mask, views, vmin, vmax, signed_max=None):
     max_columns = 5
     grouped_views = {
         orientation: [view for view in views if view.orientation == orientation]
@@ -490,14 +559,38 @@ def render(args, underlay, overlay, mask, views, vmin, vmax):
     present = [(orientation, row_views) for orientation, row_views in grouped_views.items() if row_views]
     equal_counts = len(present) > 1 and len({len(row_views) for _, row_views in present}) == 1
     underlay_low, underlay_high = compute_underlay_limits(underlay)
-    overlay_norm = Normalize(vmin=vmin, vmax=vmax)
-    overlay_cmap = plt.get_cmap(args.overlay_cmap).copy()
-    overlay_cmap.set_bad(alpha=0)
+    overlay_norm = Normalize(vmin=vmin, vmax=vmax) if not args.signed_overlay else None
+    overlay_cmap = plt.get_cmap(args.overlay_cmap).copy() if not args.signed_overlay else None
+    if overlay_cmap is not None:
+        overlay_cmap.set_bad(alpha=0)
     underlay_cmap = plt.get_cmap(args.underlay_cmap)
-    if mask is None:
-        visible = np.where(overlay == 0, np.nan, overlay)
+    if args.signed_overlay:
+        positive, negative_magnitude = signed_overlay_arrays(
+            overlay, mask, args.signed_threshold, signed_max
+        )
+        normalization_max = max(signed_max, np.nextafter(args.signed_threshold, np.inf))
+        positive_norm = Normalize(vmin=args.signed_threshold, vmax=normalization_max)
+        negative_norm = Normalize(vmin=args.signed_threshold, vmax=normalization_max)
+        positive_cmap = LinearSegmentedColormap.from_list(
+            "signed_positive_red_yellow", ["red", "yellow"]
+        )
+        negative_cmap = LinearSegmentedColormap.from_list(
+            "signed_negative_blue_green", ["blue", "green"]
+        )
+        positive_cmap.set_bad(alpha=0)
+        negative_cmap.set_bad(alpha=0)
+        visible = None
+        shown_signs = set()
+        for view in views:
+            if np.isfinite(extract_plane(positive, view.orientation, view.voxel_index)).any():
+                shown_signs.add("positive")
+            if np.isfinite(extract_plane(negative_magnitude, view.orientation, view.voxel_index)).any():
+                shown_signs.add("negative")
     else:
-        visible = np.where(mask == 1, overlay, np.nan)
+        if mask is None:
+            visible = np.where(overlay == 0, np.nan, overlay)
+        else:
+            visible = np.where(mask == 1, overlay, np.nan)
     image_axes = []
 
     def draw_panel(panel, view, title):
@@ -509,13 +602,29 @@ def render(args, underlay, overlay, mask, views, vmin, vmax):
             vmax=underlay_high,
             interpolation="nearest",
         )
-        panel.imshow(
-            extract_plane(visible, view.orientation, view.voxel_index),
-            cmap=overlay_cmap,
-            norm=overlay_norm,
-            alpha=args.overlay_alpha,
-            interpolation="nearest",
-        )
+        if args.signed_overlay:
+            panel.imshow(
+                extract_plane(negative_magnitude, view.orientation, view.voxel_index),
+                cmap=negative_cmap,
+                norm=negative_norm,
+                alpha=args.overlay_alpha,
+                interpolation="nearest",
+            )
+            panel.imshow(
+                extract_plane(positive, view.orientation, view.voxel_index),
+                cmap=positive_cmap,
+                norm=positive_norm,
+                alpha=args.overlay_alpha,
+                interpolation="nearest",
+            )
+        else:
+            panel.imshow(
+                extract_plane(visible, view.orientation, view.voxel_index),
+                cmap=overlay_cmap,
+                norm=overlay_norm,
+                alpha=args.overlay_alpha,
+                interpolation="nearest",
+            )
         panel.set_title(title)
         panel.axis("off")
 
@@ -585,9 +694,29 @@ def render(args, underlay, overlay, mask, views, vmin, vmax):
                 empty_axis = fig.add_subplot(grid[row, column + 1])
                 empty_axis.axis("off")
 
-    scalar_map = ScalarMappable(norm=overlay_norm, cmap=overlay_cmap)
-    scalar_map.set_array([])
-    fig.colorbar(scalar_map, ax=image_axes, shrink=0.82, pad=0.02)
+    if args.signed_overlay:
+        if "negative" in shown_signs:
+            negative_vmax = -args.signed_threshold
+            if negative_vmax <= -signed_max:
+                negative_vmax = np.nextafter(negative_vmax, np.inf)
+            negative_scalar = ScalarMappable(
+                norm=Normalize(vmin=-signed_max, vmax=negative_vmax),
+                cmap=negative_cmap.reversed(),
+            )
+            negative_scalar.set_array([])
+            fig.colorbar(
+                negative_scalar, ax=image_axes, shrink=0.82, pad=0.02, label="Negative"
+            )
+        if "positive" in shown_signs:
+            positive_scalar = ScalarMappable(norm=positive_norm, cmap=positive_cmap)
+            positive_scalar.set_array([])
+            fig.colorbar(
+                positive_scalar, ax=image_axes, shrink=0.82, pad=0.08, label="Positive"
+            )
+    else:
+        scalar_map = ScalarMappable(norm=overlay_norm, cmap=overlay_cmap)
+        scalar_map.set_array([])
+        fig.colorbar(scalar_map, ax=image_axes, shrink=0.82, pad=0.02)
     if figure_title:
         fig.suptitle(figure_title, fontsize=14)
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -606,6 +735,17 @@ def validate_args(args):
         raise ValueError("--overlay-alpha must be between 0 and 1")
     if args.dpi <= 0:
         raise ValueError("--dpi must be positive")
+    if not np.isfinite(args.signed_threshold) or args.signed_threshold < 0:
+        raise ValueError("--signed-threshold must be finite and >= 0")
+    if args.signed_max is not None and (
+        not np.isfinite(args.signed_max) or args.signed_max <= args.signed_threshold
+    ):
+        raise ValueError("--signed-max must be finite and greater than --signed-threshold")
+    if args.signed_overlay:
+        if args.vmin is not None or args.vmax is not None:
+            raise ValueError("--vmin and --vmax cannot be used with --signed-overlay")
+    elif args.signed_max is not None or args.signed_threshold != 0:
+        raise ValueError("--signed-threshold and --signed-max require --signed-overlay")
 
 
 def process_single(args, print_result=True):
@@ -625,11 +765,30 @@ def process_single(args, print_result=True):
         selection_method = "automatic"
     if not views:
         raise ValueError("no views were selected")
-    vmin, vmax = compute_display_limits(overlay, mask, args.vmin, args.vmax)
-    render(args, underlay, overlay, mask, views, vmin, vmax)
+    if args.signed_overlay:
+        signed_max = resolve_signed_max(
+            overlay, mask, args.signed_threshold, args.signed_max
+        )
+        if signed_max < args.signed_threshold:
+            raise ValueError("--signed-max must be >= --signed-threshold")
+        vmin = vmax = None
+    else:
+        signed_max = None
+        vmin, vmax = compute_display_limits(overlay, mask, args.vmin, args.vmax)
+    render(args, underlay, overlay, mask, views, vmin, vmax, signed_max)
     if print_result:
-        print(json.dumps({"output": str(args.output), "views": [view.__dict__ for view in views],
-                          "vmin": vmin, "vmax": vmax}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "output": str(args.output),
+                    "views": [view.__dict__ for view in views],
+                    "vmin": vmin,
+                    "vmax": vmax,
+                    "signed_max": signed_max,
+                },
+                indent=2,
+            )
+        )
 
 
 def validate_cli_paths(args):

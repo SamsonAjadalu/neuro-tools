@@ -61,6 +61,9 @@ The default patterns example is [qc_patterns.txt](qc_patterns.txt).
 --underlay-cmap {gray,jet,RdBu_r} default: gray
 --overlay-cmap {gray,jet,RdBu_r}  default: jet
 --overlay-alpha FLOAT             default: 0.5
+--signed-overlay
+--signed-threshold FLOAT          default: 0
+--signed-max FLOAT                default: automatic
 --vmin FLOAT --vmax FLOAT
 --title TEXT
 --dpi INT                         default: 300
@@ -82,6 +85,23 @@ Binary overlays use `[0, 1]` automatically. Continuous overlays use
 percentile-based display
 limits when `--vmin` and `--vmax` are omitted; provide them together to set
 explicit limits.
+
+Signed overlays use one signed NIfTI map and display its positive and negative
+values with red-to-yellow and blue-to-green scales. Values below the absolute
+`--signed-threshold` are transparent. `--signed-max` sets the shared absolute
+display limit; larger magnitudes use the endpoint color. When omitted, the
+maximum visible absolute value sets the scale. Signed overlays show a separate
+numeric colorbar for each sign present in the selected views. `--signed-max`
+must exceed the threshold; `--vmin` and `--vmax` are reserved for normal
+single-scale overlays.
+
+The equivalent pattern settings are:
+
+```ini
+signed_overlay = true
+signed_threshold = 2
+signed_max = 4
+```
 
 ## Patterns file
 
@@ -113,6 +133,9 @@ min_active_voxels
 underlay_cmap
 overlay_cmap
 overlay_alpha
+signed_overlay
+signed_threshold
+signed_max
 vmin
 vmax
 title
