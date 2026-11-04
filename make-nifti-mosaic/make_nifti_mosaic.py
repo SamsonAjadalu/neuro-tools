@@ -499,8 +499,11 @@ def automatic_axial_views(overlay, mask, affine, n_slices, min_active_percent, m
             raise ValueError(
                 f"no axial slice qualifies: maximum activity={maximum:g}, percentage threshold={threshold:g}"
             )
-    first, last = int(eligible[0]), int(eligible[-1])
-    selected = list(dict.fromkeys(np.rint(np.linspace(first, last, n_slices)).astype(int).tolist()))
+    n_selected = min(n_slices, eligible.size)
+    eligible_positions = np.rint(
+        np.linspace(0, eligible.size - 1, n_selected)
+    ).astype(int)
+    selected = eligible[eligible_positions].tolist()
     return [
         View("A", "z", view_mm_position(affine, "A", index, overlay.shape[0:3]), index)
         for index in selected
