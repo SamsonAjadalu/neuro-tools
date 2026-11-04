@@ -476,7 +476,11 @@ def convert_file(source, destination, entities, overwrite, source_format):
     if entities.get("task"):
         metadata["TaskName"] = entities["task"]
     if source_format == "nifti":
-        shutil.copy2(source, destination)
+        if source.name.lower().endswith(".nii.gz"):
+            shutil.copy2(source, destination)
+        else:
+            import nibabel as nib
+            nib.save(nib.load(str(source)), str(destination))
     else:
         import nibabel as nib
         nib.save(image, str(destination))
