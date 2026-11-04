@@ -9,4 +9,5 @@ source-to-bids/source_to_bids_modifications.md
 # Local neuro-tool development directories.
 snr-qc/
 stat-map-mosaic/
+/.venv/
 make-nifti-mosaic/.venv/

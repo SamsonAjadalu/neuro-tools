@@ -4,6 +4,8 @@ Render compatible 3D NIfTI underlay/overlay pairs as PNG mosaics.
 
 ## Installation
 
+From the repository root, run:
+
 ```bash
 bash setup.sh
 ```

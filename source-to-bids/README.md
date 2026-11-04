@@ -2,6 +2,10 @@
 
 Convert configured MINC files, or organize existing NIfTI files, into a BIDS dataset.
 
+## Installation
+
+From the repository root, run `bash setup.sh`.
+
 ## Run
 
 Use `compass_to_bids_config.txt` for COMPASS-ND. Use `source_to_bids_config.txt` as a template for another dataset.

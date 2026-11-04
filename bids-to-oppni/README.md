@@ -2,6 +2,10 @@
 
 Create OPPNI-B or OPPNI-D input files from a BIDS dataset.
 
+## Installation
+
+From the repository root, run `bash setup.sh`.
+
 ## Run
 
 Use `bids_patterns.txt` for general BIDS filename patterns. Use

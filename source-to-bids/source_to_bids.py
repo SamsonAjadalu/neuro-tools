@@ -5,12 +5,30 @@ import argparse
 import configparser
 import csv
 import json
+import os
 import re
 import shutil
 import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+VENV_ROOT = ROOT / ".venv"
+VENV_PYTHON = VENV_ROOT / "bin" / "python"
+
+if not VENV_PYTHON.is_file():
+    raise SystemExit("Environment not installed.\nRun: bash setup.sh")
+
+if Path(sys.prefix).resolve() != VENV_ROOT.resolve():
+    try:
+        os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), *sys.argv])
+    except OSError as exc:
+        raise SystemExit(
+            "Required dependencies are missing or the environment is incomplete.\n"
+            "Run: bash setup.sh"
+        ) from exc
 
 
 class ConversionError(Exception):

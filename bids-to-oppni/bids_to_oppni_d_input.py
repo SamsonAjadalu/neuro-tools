@@ -5,10 +5,28 @@ import argparse
 import fnmatch
 import json
 import math
+import os
 import re
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+VENV_ROOT = ROOT / ".venv"
+VENV_PYTHON = VENV_ROOT / "bin" / "python"
+
+if not VENV_PYTHON.is_file():
+    raise SystemExit("Environment not installed.\nRun: bash setup.sh")
+
+if Path(sys.prefix).resolve() != VENV_ROOT.resolve():
+    try:
+        os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), *sys.argv])
+    except OSError as exc:
+        raise SystemExit(
+            "Required dependencies are missing or the environment is incomplete.\n"
+            "Run: bash setup.sh"
+        ) from exc
 
 
 DEFAULT_DWI_PATTERNS = ["*dwi*.nii.gz", "*dwi*.nii"]
